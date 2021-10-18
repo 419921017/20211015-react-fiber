@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script>
+      function sleep(duration) {
+        let start = Date.now();
+
+        while (start + duration > Date.now()) {}
+      }
+
+      let channel = new MessageChannel();
+      let activeFrameTime = 1000 / 60;
+      let frameDeadline;
+      let pendingCallback;
+      let timeRemaining = () => frameDeadline - performance.now();
+
+      channel.port2.onmessage = function () {
+        // performance.now() 浏览器渲染到当前时间
+        let currentTime = performance.now();
+        // 如果帧的结束时间小于当前时间, 说明已经过期了
+        let didTimeout = frameDeadline <= currentTime;
+
+        if (didTimeout || timeRemaining() > 0) {
+          if (pendingCallback) {
+            pendingCallback({ didTimeout, timeRemaining });
+          }
+        }
+      };
+
+      window.requestIdleCallback = (callback, options) => {
+        requestAnimationFrame((rafTime) => {
+          console.log('rafTime', rafTime);
+          // 每帧结束的时间 = 每帧开始时间 + 16.6
+          frameDeadline = rafTime + activeFrameTime;
+          pendingCallback = callback;
+
+          // 发消息之后, 相当于添加宏任务, 浏览器空闲的时候会依次执行
+          channel.port1.postMessage('hello');
+        });
+      };
+
+      const works = [
+        () => {
+          console.log('A1', '开始');
+          console.log('A1', '结束');
+        },
+        () => {
+          console.log('B1', '开始');
+          console.log('B1', '结束');
+        },
+        () => {
+          console.log('C1', '开始');
+          console.log('C1', '结束');
+        },
+        () => {
+          console.log('C2', '开始');
+          console.log('C2', '结束');
+        },
+        () => {
+          console.log('B2', '开始');
+          console.log('B2', '结束');
+        },
+      ];
+
+      requestIdleCallback(workLoop);
+
+      function workLoop(deadline) {
+        console.log('本帧剩余时间: ', parseInt(deadline.timeRemaining()));
+        while (
+          (deadline.timeRemaining() > 0 || deadline.didTimeout) &&
+          works.length > 0
+        ) {
+          performUnitOfWork();
+        }
+        if (works.length > 0) {
+          console.log('本帧时间片已经到期, 等待下次调度');
+          requestIdleCallback(workLoop);
+        }
+      }
+
+      function performUnitOfWork() {
+        let work = works.shift();
+        work();
+      }
+    </script>
+  </body>
+</html>
